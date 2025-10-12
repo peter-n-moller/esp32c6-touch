@@ -1,20 +1,29 @@
 [package]
-edition      = "2021"
-name         = "display-test"
+edition = "2021"
+name = "display-test"
 rust-version = "1.86"
-version      = "0.1.0"
+version = "0.1.0"
 
 [[bin]]
 name = "display-test"
 path = "./src/bin/main.rs"
+test = false               # To avoid rust-analyzer error for not finding the test crate
+doctest = false
+bench = false
 
 [dependencies]
 esp-bootloader-esp-idf = { version = "0.2.0", features = ["esp32c6"] }
-esp-hal                = { version = "=1.0.0-rc.0", features = ["esp32c6", "unstable"] }
+esp-hal = { version = "=1.0.0-rc.0", features = ["esp32c6", "unstable"] }
+esp-backtrace = { version = "0.17.0", features = ["esp32c6", "println"] }
+esp-println = { version = "*", features = ["esp32c6", "log-04"] }
 
 critical-section = "1.2.0"
-esp-alloc        = "0.8.0"
+esp-alloc = "0.8.0"
 
+#Display driver imports
+mipidsi = "0.9.0"
+embedded-graphics = { version = "0.8.1" }
+embedded-hal-bus = { version = "0.3.0" }
 
 [profile.dev]
 # Rust debug is too slow.
@@ -22,10 +31,10 @@ esp-alloc        = "0.8.0"
 opt-level = "s"
 
 [profile.release]
-codegen-units    = 1     # LLVM can perform better optimizations using a single thread
-debug            = 2
+codegen-units = 1        # LLVM can perform better optimizations using a single thread
+debug = 2
 debug-assertions = false
-incremental      = false
-lto              = 'fat'
-opt-level        = 's'
-overflow-checks  = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
