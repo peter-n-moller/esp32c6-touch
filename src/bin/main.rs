@@ -5,18 +5,21 @@
     reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
     holding buffers for the duration of a data transfer."
 )]
+#[macro_use]
+extern crate alloc;
 
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::ledc::channel::ChannelIFace;
 use esp_hal::ledc::timer::TimerIFace;
 use esp_hal::ledc::{LSGlobalClkSource, LowSpeed};
-use esp_hal::time::{Duration, Instant};
+use esp_hal::time::Duration;
 use esp_println::println;
 
 use esp_hal::{
+    analog::adc::{Adc, AdcConfig, Attenuation},
     delay::Delay,
-    gpio::{Io, Level, Output, OutputConfig},
+    gpio::{Level, Output, OutputConfig},
     ledc::Ledc,
     main,
     rtc_cntl::Rtc,
@@ -31,29 +34,30 @@ use esp_hal::{
 
 // Display driver imports
 use embedded_graphics::{
+    mono_font::{ascii::FONT_6X9, MonoTextStyleBuilder},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{Circle, Primitive, PrimitiveStyle, Triangle},
+    text::Text,
 };
 
 // Provides the parallel port and display interface builders
 use mipidsi::interface::SpiInterface;
 
+use mipidsi::options::Orientation;
 // Provides the Display builder
-use mipidsi::{models::ST7789, options::ColorInversion, Builder};
+use mipidsi::{models::ILI9341Rgb565, options::ColorInversion, Builder};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
-    let mut delay = Delay::new(); // Define the display interface with no chip select
+    let delay = Delay::new(); // Define the display interface with no chip select
     loop {
         println!("panic!");
         delay.delay(Duration::from_secs(1));
     }
 }
-
-extern crate alloc;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -101,7 +105,7 @@ fn main() -> ! {
     delay.delay_millis(50);
 
     // backlight LED Config
-    let mut bk_light = Output::new(peripherals.GPIO23, Level::Low, OutputConfig::default());
+    let bk_light = Output::new(peripherals.GPIO23, Level::Low, OutputConfig::default());
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
 
@@ -132,7 +136,7 @@ fn main() -> ! {
     let sclk = peripherals.GPIO1;
     let dc = Output::new(peripherals.GPIO15, Level::Low, OutputConfig::default());
 
-    let mut spi = Spi::new(
+    let spi = Spi::new(
         peripherals.SPI2,
         Config::default()
             .with_frequency(Rate::from_mhz(80))
@@ -149,11 +153,12 @@ fn main() -> ! {
     let di = SpiInterface::new(spi_device, dc, &mut buffer);
 
     // Define the display from the display interface and initialize it
-    let mut display = Builder::new(ST7789, di)
+    let mut display = Builder::new(ILI9341Rgb565, di)
         .reset_pin(rst)
         .display_offset(34, 0)
         .display_size(172, 320)
         .invert_colors(ColorInversion::Normal)
+        .orientation(Orientation::new().flip_horizontal())
         .init(&mut delay)
         .unwrap();
 
@@ -163,19 +168,36 @@ fn main() -> ! {
     // Draw a smiley face with white eyes and a red mouth
     draw_smiley(&mut display).unwrap();
 
+    // Setup text
+    let style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X9)
+        .text_color(Rgb565::WHITE)
+        .background_color(Rgb565::BLACK)
+        .build();
+
+    // Config ADC to measure VBAT.
+    let mut adc1_config = AdcConfig::new();
+    let mut vbat_pin = adc1_config.enable_pin(peripherals.GPIO0, Attenuation::_11dB);
+    let mut vbat_adc1 = Adc::new(peripherals.ADC1, adc1_config);
+
     let temperature_sensor =
         tsens::TemperatureSensor::new(peripherals.TSENS, tsens::Config::default()).unwrap();
     let delay = Delay::new();
-
+    const VAL_TO_VOLT: f32 = 5.0 / 4096.0;
     loop {
         println!("loop");
         delay.delay(Duration::from_secs(1));
         let temp = temperature_sensor.get_temperature();
-        println!("Temperature: {:.2}°C", temp.to_celsius());
-        // Do nothing
+        let temp_str = format!("Temperature: {:.2} C", temp.to_celsius());
+        let vbat_v: f32 = vbat_adc1.read_oneshot(&mut vbat_pin).unwrap() as f32 * VAL_TO_VOLT;
+        let volt_str = format!("VBAT ADC: {} V", vbat_v);
+        Text::new(volt_str.as_str(), Point::new(20, 30), style)
+            .draw(&mut display)
+            .unwrap();
+        Text::new(temp_str.as_str(), Point::new(20, 40), style)
+            .draw(&mut display)
+            .unwrap();
     }
-
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-rc.0/examples/src/bin
 }
 
 fn draw_smiley<T: DrawTarget<Color = Rgb565>>(display: &mut T) -> Result<(), T::Error> {
