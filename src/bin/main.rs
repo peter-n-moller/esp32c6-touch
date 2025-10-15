@@ -50,9 +50,15 @@ use mipidsi::{models::ILI9341Rgb565, options::ColorInversion, Builder};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
 
+// Constants
+const VAL_TO_VOLT: f32 = 5.0 / 4096.0;
+const BACKLIGHT_DUTY: u8 = 80;
+const DISPLAY_WIDTH: u16 = 172;
+const DISPLAY_HEIGHT: u16 = 320;
+
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
-    let delay = Delay::new(); // Define the display interface with no chip select
+    let delay = Delay::new();
     loop {
         println!("panic!");
         delay.delay(Duration::from_secs(1));
@@ -61,25 +67,23 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
-esp_bootloader_esp_idf::esp_app_desc!();
-
 #[main]
 fn main() -> ! {
-    // generator version: 0.5.0
-
+    // ========================================
+    // SYSTEM INITIALIZATION
+    // ========================================
     let _config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     esp_println::logger::init_logger_from_env();
-
     println!("start!");
-
     esp_alloc::heap_allocator!(size: 64 * 1024);
 
     let peripherals = esp_hal::init(esp_hal::Config::default());
+    let mut delay = Delay::new();
 
-    let mut delay = Delay::new(); // Define the display interface with no chip select
-
+    // ========================================
+    // DISABLE WATCHDOG TIMERS
+    // ========================================
     println!("Disable the RTC and TIMG watchdog timers");
-    // Disable the RTC and TIMG watchdog timers
     let mut rtc = Rtc::new(peripherals.LPWR);
     let timer_group0 = TimerGroup::new(peripherals.TIMG0);
     let mut wdt0 = timer_group0.wdt;
@@ -90,13 +94,16 @@ fn main() -> ! {
     wdt0.disable();
     wdt1.disable();
 
-    // Define the reset pin as digital outputs and make it high
+    // ========================================
+    // DISPLAY HARDWARE SETUP
+    // ========================================
+
+    // Initialize display control pins
     let cs = peripherals.GPIO14;
     let mut cs_output = Output::new(cs, Level::High, OutputConfig::default());
-
     let mut rst = Output::new(peripherals.GPIO22, Level::Low, OutputConfig::default());
-    // rst.set_high();
-    // Reset display
+
+    // Perform display reset sequence
     cs_output.set_low();
     delay.delay_millis(50);
     rst.set_low();
@@ -104,7 +111,7 @@ fn main() -> ! {
     rst.set_high();
     delay.delay_millis(50);
 
-    // backlight LED Config
+    // Configure backlight PWM
     let bk_light = Output::new(peripherals.GPIO23, Level::Low, OutputConfig::default());
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
@@ -127,9 +134,11 @@ fn main() -> ! {
         })
         .unwrap();
 
-    channel0.set_duty(80).unwrap();
+    channel0.set_duty(BACKLIGHT_DUTY).unwrap();
 
-    // Setup SPI interface
+    // ========================================
+    // SPI INTERFACE SETUP
+    // ========================================
     println!("Setup SPI interface");
     let miso = peripherals.GPIO3;
     let mosi = peripherals.GPIO2;
@@ -144,57 +153,69 @@ fn main() -> ! {
     )
     .unwrap()
     .with_sck(sclk)
-    .with_miso(miso) // order matters
-    .with_mosi(mosi); // order matters
+    .with_miso(miso)
+    .with_mosi(mosi);
 
     let spi_device = ExclusiveDevice::new_no_delay(spi, cs_output).unwrap();
 
+    // ========================================
+    // DISPLAY INITIALIZATION
+    // ========================================
     let mut buffer = [0_u8; 512];
     let di = SpiInterface::new(spi_device, dc, &mut buffer);
 
-    // Define the display from the display interface and initialize it
     let mut display = Builder::new(ILI9341Rgb565, di)
         .reset_pin(rst)
         .display_offset(34, 0)
-        .display_size(172, 320)
+        .display_size(DISPLAY_WIDTH, DISPLAY_HEIGHT)
         .invert_colors(ColorInversion::Normal)
         .orientation(Orientation::new().flip_horizontal())
         .init(&mut delay)
         .unwrap();
 
-    // Make the display all black
+    // Clear display and draw initial content
     display.clear(Rgb565::BLACK).unwrap();
-
-    // Draw a smiley face with white eyes and a red mouth
     draw_smiley(&mut display).unwrap();
 
-    // Setup text
-    let style = MonoTextStyleBuilder::new()
+    // ========================================
+    // SENSOR SETUP
+    // ========================================
+
+    // Setup text rendering style
+    let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_6X9)
         .text_color(Rgb565::WHITE)
         .background_color(Rgb565::BLACK)
         .build();
 
-    // Config ADC to measure VBAT.
+    // Configure ADC for battery voltage monitoring
     let mut adc1_config = AdcConfig::new();
     let mut vbat_pin = adc1_config.enable_pin(peripherals.GPIO0, Attenuation::_11dB);
     let mut vbat_adc1 = Adc::new(peripherals.ADC1, adc1_config);
 
+    // Setup temperature sensor
     let temperature_sensor =
         tsens::TemperatureSensor::new(peripherals.TSENS, tsens::Config::default()).unwrap();
-    let delay = Delay::new();
-    const VAL_TO_VOLT: f32 = 5.0 / 4096.0;
+
+    // ========================================
+    // MAIN APPLICATION LOOP
+    // ========================================
     loop {
-        println!("loop");
         delay.delay(Duration::from_secs(1));
+
+        // Read temperature sensor
         let temp = temperature_sensor.get_temperature();
         let temp_str = format!("Temperature: {:.2} C", temp.to_celsius());
+
+        // Read battery voltage via ADC
         let vbat_v: f32 = vbat_adc1.read_oneshot(&mut vbat_pin).unwrap() as f32 * VAL_TO_VOLT;
-        let volt_str = format!("VBAT ADC: {} V", vbat_v);
-        Text::new(volt_str.as_str(), Point::new(20, 30), style)
+        let volt_str = format!("VBAT ADC: {:.2} V", vbat_v);
+
+        // Update display with sensor readings
+        Text::new(volt_str.as_str(), Point::new(20, 30), text_style)
             .draw(&mut display)
             .unwrap();
-        Text::new(temp_str.as_str(), Point::new(20, 40), style)
+        Text::new(temp_str.as_str(), Point::new(20, 40), text_style)
             .draw(&mut display)
             .unwrap();
     }
@@ -229,8 +250,6 @@ fn draw_smiley<T: DrawTarget<Color = Rgb565>>(display: &mut T) -> Result<(), T::
     )
     .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
     .draw(display)?;
-
-    println!("done draw smiley!");
 
     Ok(())
 }
