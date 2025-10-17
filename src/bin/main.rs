@@ -65,6 +65,8 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     }
 }
 
+esp_bootloader_esp_idf::esp_app_desc!();
+
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 #[main]
@@ -169,6 +171,7 @@ fn main() -> ! {
         .display_offset(34, 0)
         .display_size(DISPLAY_WIDTH, DISPLAY_HEIGHT)
         .invert_colors(ColorInversion::Normal)
+        .color_order(mipidsi::options::ColorOrder::Bgr)
         .orientation(Orientation::new().flip_horizontal())
         .init(&mut delay)
         .unwrap();
