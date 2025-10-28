@@ -2,6 +2,18 @@
 
 use embedded_hal::i2c::I2c;
 
+// Import standard library traits for derive
+use Option::{None, Some};
+use Result::Ok;
+use core::clone::Clone;
+use core::cmp::min;
+use core::default::Default;
+use core::marker::Copy;
+use core::option::Option;
+use core::prelude::rust_2024::derive;
+use core::result::Result;
+use esp_println::println;
+
 /// Maximum number of touch points supported
 const MAX_TOUCH_POINTS: usize = 5;
 
@@ -15,21 +27,21 @@ const AXS5106L_ID_REG: u8 = 0x08;
 const AXS5106L_TOUCH_DATA_REG: u8 = 0x01;
 
 /// Touch point coordinates
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct Coordinates {
     pub x: u16,
     pub y: u16,
 }
 
 /// Touch data containing all touch points
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct TouchData {
     pub coords: [Coordinates; MAX_TOUCH_POINTS],
     pub touch_num: u8,
 }
 
 /// Display rotation modes
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum Rotation {
     Rotate0 = 0,
     Rotate90 = 1,
@@ -133,7 +145,7 @@ where
         }
 
         // Parse touch coordinates
-        for i in 0..self.touch_data.touch_num.min(MAX_TOUCH_POINTS as u8) as usize {
+        for i in 0..min(self.touch_data.touch_num, MAX_TOUCH_POINTS as u8) as usize {
             let base = 2 + i * 6;
 
             // Extract 12-bit X coordinate
@@ -158,7 +170,7 @@ where
         let mut transformed = self.touch_data.clone();
 
         // Apply rotation transformation to each touch point
-        for i in 0..self.touch_data.touch_num.min(MAX_TOUCH_POINTS as u8) as usize {
+        for i in 0..min(self.touch_data.touch_num, MAX_TOUCH_POINTS as u8) as usize {
             let (x, y) = match self.rotation {
                 Rotation::Rotate0 => {
                     // Default orientation
