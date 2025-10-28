@@ -3,16 +3,16 @@
 use embedded_hal::i2c::I2c;
 
 // Import standard library traits for derive
-use Option::{None, Some};
-use Result::Ok;
 use core::clone::Clone;
 use core::cmp::min;
 use core::default::Default;
 use core::marker::Copy;
 use core::option::Option;
-use core::prelude::rust_2024::derive;
+use core::prelude::rust_2021::derive;
 use core::result::Result;
 use esp_println::println;
+use Option::{None, Some};
+use Result::Ok;
 
 /// Maximum number of touch points supported
 const MAX_TOUCH_POINTS: usize = 5;

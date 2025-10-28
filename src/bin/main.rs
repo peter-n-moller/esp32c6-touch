@@ -27,8 +27,8 @@ use esp_hal::{
     main,
     rtc_cntl::Rtc,
     spi::{
-        Mode,
         master::{Config, Spi},
+        Mode,
     },
     time::Rate,
     timer::timg::TimerGroup,
@@ -37,7 +37,7 @@ use esp_hal::{
 
 // Display driver imports
 use embedded_graphics::{
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X9},
+    mono_font::{ascii::FONT_6X9, MonoTextStyleBuilder},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{Circle, Primitive, PrimitiveStyle, Triangle},
@@ -49,7 +49,7 @@ use mipidsi::interface::SpiInterface;
 
 use mipidsi::options::Orientation;
 // Provides the Display builder
-use mipidsi::{Builder, models::ILI9341Rgb565, options::ColorInversion};
+use mipidsi::{models::ILI9341Rgb565, options::ColorInversion, Builder};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
 
@@ -123,6 +123,7 @@ fn main() -> ! {
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
 
+    println!("Setup backlight timer");
     let mut lstimer0 = ledc.timer::<LowSpeed>(esp_hal::ledc::timer::Number::Timer0);
     lstimer0
         .configure(esp_hal::ledc::timer::config::Config {
@@ -131,7 +132,7 @@ fn main() -> ! {
             frequency: Rate::from_khz(1),
         })
         .unwrap();
-
+    println!("Setup backlight channel");
     let mut channel0 = ledc.channel(esp_hal::ledc::channel::Number::Channel0, bk_light);
     channel0
         .configure(esp_hal::ledc::channel::config::Config {
@@ -191,18 +192,20 @@ fn main() -> ! {
     // ========================================
 
     println!("Setup touch driver");
-    let scl_pin = peripherals.GPIO11;
-    let sda_pin = peripherals.GPIO12;
 
     // Initialize I2C bus
+    let sda = peripherals.GPIO18;
+    let scl = peripherals.GPIO19;
+
     let i2c = I2c::new(
         peripherals.I2C0,
         esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(400)),
     )
     .unwrap()
-    .with_sda(sda_pin)
-    .with_scl(scl_pin);
+    .with_scl(scl)
+    .with_sda(sda);
 
+    println!("Create touch driver instance");
     // Create touch driver instance
     let mut touch = Axs5106l::new(
         i2c,
