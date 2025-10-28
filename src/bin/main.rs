@@ -20,6 +20,7 @@ use esp_hal::{
     analog::adc::{Adc, AdcConfig, Attenuation},
     delay::Delay,
     gpio::{Level, Output, OutputConfig},
+    i2c::master::{Config as I2cConfig, I2c},
     ledc::Ledc,
     main,
     rtc_cntl::Rtc,
@@ -132,7 +133,7 @@ fn main() -> ! {
         .configure(esp_hal::ledc::channel::config::Config {
             timer: &lstimer0,
             duty_pct: 10,
-            pin_config: esp_hal::ledc::channel::config::PinConfig::PushPull,
+            drive_mode: esp_hal::gpio::DriveMode::PushPull,
         })
         .unwrap();
 
