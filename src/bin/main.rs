@@ -27,8 +27,8 @@ use esp_hal::{
     main,
     rtc_cntl::Rtc,
     spi::{
-        master::{Config, Spi},
         Mode,
+        master::{Config, Spi},
     },
     time::Rate,
     timer::timg::TimerGroup,
@@ -37,7 +37,7 @@ use esp_hal::{
 
 // Display driver imports
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X9, MonoTextStyleBuilder},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X9},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{Circle, Primitive, PrimitiveStyle, Triangle},
@@ -49,7 +49,7 @@ use mipidsi::interface::SpiInterface;
 
 use mipidsi::options::Orientation;
 // Provides the Display builder
-use mipidsi::{models::ILI9341Rgb565, options::ColorInversion, Builder};
+use mipidsi::{Builder, models::ILI9341Rgb565, options::ColorInversion};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
 
@@ -58,15 +58,6 @@ const VAL_TO_VOLT: f32 = 5.0 / 4096.0;
 const BACKLIGHT_DUTY: u8 = 80;
 const DISPLAY_WIDTH: u16 = 172;
 const DISPLAY_HEIGHT: u16 = 320;
-
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    let delay = Delay::new();
-    loop {
-        println!("panic!");
-        delay.delay(Duration::from_secs(1));
-    }
-}
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -78,7 +69,6 @@ fn main() -> ! {
     // SYSTEM INITIALIZATION
     // ========================================
     let _config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    esp_println::logger::init_logger_from_env();
     println!("start!");
     esp_alloc::heap_allocator!(size: 64 * 1024);
 
