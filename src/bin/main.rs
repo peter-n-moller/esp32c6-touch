@@ -69,7 +69,6 @@ fn main() -> ! {
     // SYSTEM INITIALIZATION
     // ========================================
     let _config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    esp_println::logger::init_logger_from_env();
     println!("start!");
     esp_alloc::heap_allocator!(size: 64 * 1024);
 

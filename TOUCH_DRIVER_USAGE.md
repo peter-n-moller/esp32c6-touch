@@ -38,7 +38,7 @@ let mut touch = Axs5106l::new(
 touch.init().expect("Failed to initialize touch controller");
 
 // Set up interrupt pin
-let touch_int = Input::new(peripherals.GPIO_X, Pull::Up);
+let touch_int = Input::new(peripherals.GPIO_21, Pull::Up);
 
 // In your main loop or interrupt handler:
 loop {

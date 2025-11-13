@@ -11,6 +11,13 @@ test = false               # To avoid rust-analyzer error for not finding the te
 doctest = false
 bench = false
 
+[lib]
+name = "display_test"
+path = "./src/lib.rs"
+test = false          # To avoid rust-analyzer error for not finding the test crate
+doctest = false
+bench = false
+
 [dependencies]
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32c6"] }
 esp-hal = { version = "=1.0.0", features = ["esp32c6", "unstable"] }
