@@ -14,7 +14,11 @@ bench = false
 [dependencies]
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32c6"] }
 esp-hal = { version = "=1.0.0", features = ["esp32c6", "unstable"] }
-esp-backtrace = { version = "0.18.1", features = ["esp32c6", "println"] }
+esp-backtrace = { version = "0.18.1", features = [
+  "panic-handler",
+  "esp32c6",
+  "println",
+] }
 esp-println = { version = "0.16.1", features = ["esp32c6", "log-04"] }
 
 critical-section = "1.2.0"

@@ -27,8 +27,8 @@ use esp_hal::{
     main,
     rtc_cntl::Rtc,
     spi::{
-        master::{Config, Spi},
         Mode,
+        master::{Config, Spi},
     },
     time::Rate,
     timer::timg::TimerGroup,
@@ -37,7 +37,7 @@ use esp_hal::{
 
 // Display driver imports
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X9, MonoTextStyleBuilder},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X9},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{Circle, Primitive, PrimitiveStyle, Triangle},
@@ -49,7 +49,7 @@ use mipidsi::interface::SpiInterface;
 
 use mipidsi::options::Orientation;
 // Provides the Display builder
-use mipidsi::{models::ILI9341Rgb565, options::ColorInversion, Builder};
+use mipidsi::{Builder, models::ILI9341Rgb565, options::ColorInversion};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
 
@@ -58,15 +58,6 @@ const VAL_TO_VOLT: f32 = 5.0 / 4096.0;
 const BACKLIGHT_DUTY: u8 = 80;
 const DISPLAY_WIDTH: u16 = 172;
 const DISPLAY_HEIGHT: u16 = 320;
-
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    let delay = Delay::new();
-    loop {
-        println!("panic!");
-        delay.delay(Duration::from_secs(1));
-    }
-}
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -117,6 +108,14 @@ fn main() -> ! {
     rst.set_high();
     delay.delay_millis(50);
 
+    let mut touch_rst = Output::new(peripherals.GPIO20, Level::Low, OutputConfig::default());
+    // Perform touch reset sequence
+    println!("Reset display");
+    touch_rst.set_low();
+    delay.delay_millis(50);
+    touch_rst.set_high();
+    delay.delay_millis(50);
+
     // Configure backlight PWM
     println!("Setup backlight PWM");
     let bk_light = Output::new(peripherals.GPIO23, Level::Low, OutputConfig::default());
@@ -129,7 +128,7 @@ fn main() -> ! {
         .configure(esp_hal::ledc::timer::config::Config {
             duty: esp_hal::ledc::timer::config::Duty::Duty5Bit,
             clock_source: esp_hal::ledc::timer::LSClockSource::APBClk,
-            frequency: Rate::from_khz(1),
+            frequency: Rate::from_khz(24),
         })
         .unwrap();
     println!("Setup backlight channel");
@@ -243,14 +242,19 @@ fn main() -> ! {
     let temperature_sensor =
         tsens::TemperatureSensor::new(peripherals.TSENS, tsens::Config::default()).unwrap();
 
+    let mut counter: u32 = 0;
+
     // ========================================
     // MAIN APPLICATION LOOP
     // ========================================
     loop {
-        delay.delay(Duration::from_secs(1));
+        delay.delay(Duration::from_millis(250));
+        println!("Counter: {}", counter);
+        counter += 1;
 
         // Check if touch interrupt occurred
         if touch_int.is_low() {
+            println!("int is low!");
             touch.set_interrupt();
         }
 
