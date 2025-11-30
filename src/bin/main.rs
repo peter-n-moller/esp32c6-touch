@@ -107,14 +107,6 @@ fn main() -> ! {
     rst.set_high();
     delay.delay_millis(50);
 
-    let mut touch_rst = Output::new(peripherals.GPIO20, Level::Low, OutputConfig::default());
-    // Perform touch reset sequence
-    println!("Reset display");
-    touch_rst.set_low();
-    delay.delay_millis(50);
-    touch_rst.set_high();
-    delay.delay_millis(50);
-
     // Configure backlight PWM
     println!("Setup backlight PWM");
     let bk_light = Output::new(peripherals.GPIO23, Level::Low, OutputConfig::default());
@@ -197,7 +189,7 @@ fn main() -> ! {
 
     let i2c = I2c::new(
         peripherals.I2C0,
-        esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(400)),
+        esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(100)),
     )
     .unwrap()
     .with_scl(scl)
@@ -212,14 +204,23 @@ fn main() -> ! {
         DISPLAY_HEIGHT,    // Display height
     );
 
+    let mut touch_rst = Output::new(peripherals.GPIO20, Level::Low, OutputConfig::default());
+    // Perform touch reset sequence
+    println!("Reset touch");
+    touch_rst.set_low();
+    delay.delay_millis(200);
+    touch_rst.set_high();
+    delay.delay_millis(200);
+
     // Initialize the touch controller
     touch.init().expect("Failed to initialize touch controller");
 
     // Set up interrupt pin
-    let touch_int = Input::new(
+    let mut touch_int = Input::new(
         peripherals.GPIO21,
         InputConfig::default().with_pull(Pull::Up),
     );
+    touch_int.listen(esp_hal::gpio::Event::FallingEdge);
 
     // ========================================
     // SENSOR SETUP
@@ -251,23 +252,28 @@ fn main() -> ! {
         println!("Counter: {}", counter);
         counter += 1;
 
-        // Check if touch interrupt occurred
-        if touch_int.is_low() {
-            println!("int is low!");
+        // Check if touch interrupt occurred and transfer it to the driver
+        if touch_int.is_interrupt_set() {
+            println!("Touch interrupt detected!");
+            touch_int.clear_interrupt();
             touch.set_interrupt();
         }
 
-        // Read touch data if interrupt flag is set
+        // Read touch data if interrupt flag is set in driver
         if touch.has_interrupt() {
-            touch.read_touch().expect("Failed to read touch data");
-
-            // Get transformed coordinates
-            if let Some(touch_data) = touch.get_coordinates() {
-                for i in 0..touch_data.touch_num {
-                    let coord = touch_data.coords[i as usize];
-                    println!("Touch {}: x={}, y={}", i, coord.x, coord.y);
+            match touch.read_touch() {
+                Ok(_) => {
+                    // Get transformed coordinates
+                    if let Some(touch_data) = touch.get_coordinates() {
+                        for i in 0..touch_data.touch_num {
+                            let coord = touch_data.coords[i as usize];
+                            println!("Touch {}: x={}, y={}", i, coord.x, coord.y);
+                        }
+                    }
                 }
+                Err(e) => println!("Error reading touch data: {:?}", e),
             }
+            // Note: read_touch() already clears the interrupt flag internally
         }
 
         // Read temperature sensor

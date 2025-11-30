@@ -12,6 +12,7 @@ use core::marker::Copy;
 use core::option::Option;
 use core::prelude::rust_2021::derive;
 use core::result::Result;
+use esp_println::println;
 
 /// Maximum number of touch points supported
 const MAX_TOUCH_POINTS: usize = 5;
@@ -86,18 +87,27 @@ where
     pub fn init(&mut self) -> Result<(), E> {
         let mut data = [0u8; 3];
         self.i2c_read(AXS5106L_ID_REG, &mut data)?;
-
+        println!("init touch i2c");
         // If data[0] is not zero, the device responded
         if data[0] != 0 {
             // Device ID read successfully
         }
+        println!("TouchData: {},{},{}", data[0], data[1], data[2]);
 
         Ok(())
     }
 
     /// Read from an I2C register
+    ///
+    /// Uses two separate I2C transactions to match the working C++ implementation:
+    /// 1. Write the register address
+    /// 2. Read the data
     fn i2c_read(&mut self, reg_addr: u8, data: &mut [u8]) -> Result<(), E> {
-        self.i2c.write_read(AXS5106L_ADDR, &[reg_addr], data)
+        // First, write the register address
+        self.i2c.write(AXS5106L_ADDR, &[reg_addr])?;
+
+        // Then, read the data in a separate transaction
+        self.i2c.read(AXS5106L_ADDR, data)
     }
 
     /// Write to an I2C register
@@ -135,6 +145,7 @@ where
         self.touch_int_flag = false;
 
         let mut data = [0u8; 14];
+        println!("touch: i2c_read");
         self.i2c_read(AXS5106L_TOUCH_DATA_REG, &mut data)?;
 
         self.touch_data.touch_num = data[1];
