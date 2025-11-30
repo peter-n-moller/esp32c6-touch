@@ -189,7 +189,7 @@ fn main() -> ! {
 
     let i2c = I2c::new(
         peripherals.I2C0,
-        esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(100)),
+        esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(400)),
     )
     .unwrap()
     .with_scl(scl)
@@ -216,11 +216,11 @@ fn main() -> ! {
     touch.init().expect("Failed to initialize touch controller");
 
     // Set up interrupt pin
-    let mut touch_int = Input::new(
+    let touch_int = Input::new(
         peripherals.GPIO21,
         InputConfig::default().with_pull(Pull::Up),
     );
-    touch_int.listen(esp_hal::gpio::Event::FallingEdge);
+    // Note: Not using hardware interrupts - polling the pin level instead
 
     // ========================================
     // SENSOR SETUP
@@ -242,20 +242,15 @@ fn main() -> ! {
     let temperature_sensor =
         tsens::TemperatureSensor::new(peripherals.TSENS, tsens::Config::default()).unwrap();
 
-    let mut counter: u32 = 0;
-
     // ========================================
     // MAIN APPLICATION LOOP
     // ========================================
     loop {
-        delay.delay(Duration::from_millis(250));
-        println!("Counter: {}", counter);
-        counter += 1;
+        delay.delay(Duration::from_millis(50));
 
-        // Check if touch interrupt occurred and transfer it to the driver
-        if touch_int.is_interrupt_set() {
-            println!("Touch interrupt detected!");
-            touch_int.clear_interrupt();
+        // Poll the touch interrupt pin (active LOW)
+        if touch_int.is_low() {
+            println!("Touch interrupt pin is LOW - reading touch data");
             touch.set_interrupt();
         }
 
@@ -271,7 +266,9 @@ fn main() -> ! {
                         }
                     }
                 }
-                Err(e) => println!("Error reading touch data: {:?}", e),
+                Err(e) => {
+                    println!("Error reading touch data: {:?}", e);
+                }
             }
             // Note: read_touch() already clears the interrupt flag internally
         }
