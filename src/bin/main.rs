@@ -16,16 +16,19 @@ use esp_hal::ledc::{LSGlobalClkSource, LowSpeed};
 use esp_hal::time::Duration;
 use esp_println::println;
 
+use display_test::axs5106l::{Axs5106l, Rotation};
+
 use esp_hal::{
     analog::adc::{Adc, AdcConfig, Attenuation},
     delay::Delay,
-    gpio::{Level, Output, OutputConfig},
+    gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull},
+    i2c::master::I2c,
     ledc::Ledc,
     main,
     rtc_cntl::Rtc,
     spi::{
-        master::{Config, Spi},
         Mode,
+        master::{Config, Spi},
     },
     time::Rate,
     timer::timg::TimerGroup,
@@ -34,7 +37,7 @@ use esp_hal::{
 
 // Display driver imports
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X9, MonoTextStyleBuilder},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X9},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{Circle, Primitive, PrimitiveStyle, Triangle},
@@ -46,7 +49,7 @@ use mipidsi::interface::SpiInterface;
 
 use mipidsi::options::Orientation;
 // Provides the Display builder
-use mipidsi::{models::ILI9341Rgb565, options::ColorInversion, Builder};
+use mipidsi::{Builder, models::ILI9341Rgb565, options::ColorInversion};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
 
@@ -55,15 +58,6 @@ const VAL_TO_VOLT: f32 = 5.0 / 4096.0;
 const BACKLIGHT_DUTY: u8 = 80;
 const DISPLAY_WIDTH: u16 = 172;
 const DISPLAY_HEIGHT: u16 = 320;
-
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    let delay = Delay::new();
-    loop {
-        println!("panic!");
-        delay.delay(Duration::from_secs(1));
-    }
-}
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -75,7 +69,6 @@ fn main() -> ! {
     // SYSTEM INITIALIZATION
     // ========================================
     let _config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    esp_println::logger::init_logger_from_env();
     println!("start!");
     esp_alloc::heap_allocator!(size: 64 * 1024);
 
@@ -106,6 +99,7 @@ fn main() -> ! {
     let mut rst = Output::new(peripherals.GPIO22, Level::Low, OutputConfig::default());
 
     // Perform display reset sequence
+    println!("Reset display");
     cs_output.set_low();
     delay.delay_millis(50);
     rst.set_low();
@@ -114,25 +108,27 @@ fn main() -> ! {
     delay.delay_millis(50);
 
     // Configure backlight PWM
+    println!("Setup backlight PWM");
     let bk_light = Output::new(peripherals.GPIO23, Level::Low, OutputConfig::default());
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
 
+    println!("Setup backlight timer");
     let mut lstimer0 = ledc.timer::<LowSpeed>(esp_hal::ledc::timer::Number::Timer0);
     lstimer0
         .configure(esp_hal::ledc::timer::config::Config {
             duty: esp_hal::ledc::timer::config::Duty::Duty5Bit,
             clock_source: esp_hal::ledc::timer::LSClockSource::APBClk,
-            frequency: Rate::from_khz(1),
+            frequency: Rate::from_khz(24),
         })
         .unwrap();
-
+    println!("Setup backlight channel");
     let mut channel0 = ledc.channel(esp_hal::ledc::channel::Number::Channel0, bk_light);
     channel0
         .configure(esp_hal::ledc::channel::config::Config {
             timer: &lstimer0,
             duty_pct: 10,
-            pin_config: esp_hal::ledc::channel::config::PinConfig::PushPull,
+            drive_mode: esp_hal::gpio::DriveMode::PushPull,
         })
         .unwrap();
 
@@ -163,6 +159,7 @@ fn main() -> ! {
     // ========================================
     // DISPLAY INITIALIZATION
     // ========================================
+    println!("Initialize display driver");
     let mut buffer = [0_u8; 512];
     let di = SpiInterface::new(spi_device, dc, &mut buffer);
 
@@ -179,6 +176,51 @@ fn main() -> ! {
     // Clear display and draw initial content
     display.clear(Rgb565::BLACK).unwrap();
     draw_smiley(&mut display).unwrap();
+
+    // ========================================
+    // TOUCH DRIVER SETUP
+    // ========================================
+
+    println!("Setup touch driver");
+
+    // Initialize I2C bus
+    let sda = peripherals.GPIO18;
+    let scl = peripherals.GPIO19;
+
+    let i2c = I2c::new(
+        peripherals.I2C0,
+        esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(400)),
+    )
+    .unwrap()
+    .with_scl(scl)
+    .with_sda(sda);
+
+    println!("Create touch driver instance");
+    // Create touch driver instance
+    let mut touch = Axs5106l::new(
+        i2c,
+        Rotation::Rotate0, // Set display rotation
+        DISPLAY_WIDTH,     // Display width
+        DISPLAY_HEIGHT,    // Display height
+    );
+
+    let mut touch_rst = Output::new(peripherals.GPIO20, Level::Low, OutputConfig::default());
+    // Perform touch reset sequence
+    println!("Reset touch");
+    touch_rst.set_low();
+    delay.delay_millis(200);
+    touch_rst.set_high();
+    delay.delay_millis(200);
+
+    // Initialize the touch controller
+    touch.init().expect("Failed to initialize touch controller");
+
+    // Set up interrupt pin
+    let touch_int = Input::new(
+        peripherals.GPIO21,
+        InputConfig::default().with_pull(Pull::Up),
+    );
+    // Note: Not using hardware interrupts - polling the pin level instead
 
     // ========================================
     // SENSOR SETUP
@@ -204,7 +246,32 @@ fn main() -> ! {
     // MAIN APPLICATION LOOP
     // ========================================
     loop {
-        delay.delay(Duration::from_secs(1));
+        delay.delay(Duration::from_millis(50));
+
+        // Poll the touch interrupt pin (active LOW)
+        if touch_int.is_low() {
+            println!("Touch interrupt pin is LOW - reading touch data");
+            touch.set_interrupt();
+        }
+
+        // Read touch data if interrupt flag is set in driver
+        if touch.has_interrupt() {
+            match touch.read_touch() {
+                Ok(_) => {
+                    // Get transformed coordinates
+                    if let Some(touch_data) = touch.get_coordinates() {
+                        for i in 0..touch_data.touch_num {
+                            let coord = touch_data.coords[i as usize];
+                            println!("Touch {}: x={}, y={}", i, coord.x, coord.y);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Error reading touch data: {:?}", e);
+                }
+            }
+            // Note: read_touch() already clears the interrupt flag internally
+        }
 
         // Read temperature sensor
         let temp = temperature_sensor.get_temperature();
