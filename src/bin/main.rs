@@ -245,8 +245,10 @@ fn main() -> ! {
     // ========================================
     // MAIN APPLICATION LOOP
     // ========================================
+    let mut loop_count = 0;
     loop {
-        delay.delay(Duration::from_millis(50));
+        delay.delay(Duration::from_millis(10));
+        loop_count += 1;
 
         // Poll the touch interrupt pin (active LOW)
         if touch_int.is_low() {
@@ -273,25 +275,33 @@ fn main() -> ! {
             // Note: read_touch() already clears the interrupt flag internally
         }
 
-        // Read temperature sensor
-        let temp = temperature_sensor.get_temperature();
-        let temp_str = format!("Temperature: {:.2} C", temp.to_celsius());
+        // Update display every 200 ms (10 times slower than loop frequency)
+        if loop_count >= 20 {
+            // Read temperature sensor
+            let temp = temperature_sensor.get_temperature();
+            let temp_str = format!("Temperature: {:.2} C", temp.to_celsius());
 
-        // Read battery voltage via ADC
-        let vbat_v: f32 = vbat_adc1.read_oneshot(&mut vbat_pin).unwrap() as f32 * VAL_TO_VOLT;
-        let volt_str = format!("VBAT ADC: {:.2} V", vbat_v);
+            // Read battery voltage via ADC
+            let vbat_v: f32 = vbat_adc1.read_oneshot(&mut vbat_pin).unwrap() as f32 * VAL_TO_VOLT;
+            let volt_str = format!("VBAT ADC: {:.2} V", vbat_v);
 
-        // Update display with sensor readings
-        Text::new(volt_str.as_str(), Point::new(20, 30), text_style)
-            .draw(&mut display)
-            .unwrap();
-        Text::new(temp_str.as_str(), Point::new(20, 40), text_style)
-            .draw(&mut display)
-            .unwrap();
+            // Update display with sensor readings
+            Text::new(volt_str.as_str(), Point::new(20, 30), text_style)
+                .draw(&mut display)
+                .unwrap();
+            Text::new(temp_str.as_str(), Point::new(20, 40), text_style)
+                .draw(&mut display)
+                .unwrap();
+
+            loop_count = 0;
+        }
     }
 }
 
-fn draw_smiley<T: DrawTarget<Color = Rgb565>>(display: &mut T) -> Result<(), T::Error> {
+fn draw_smiley<T>(display: &mut T) -> Result<(), T::Error>
+where
+    T: DrawTarget<Color = Rgb565>,
+{
     // Draw the left eye as a circle located at (50, 100), with a diameter of 40, filled with white
     println!("draw_smiley");
     Circle::new(Point::new(50, 100), 40)
